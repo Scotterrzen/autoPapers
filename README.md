@@ -1,5 +1,10 @@
 # autoPapers
 
+[![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](./pyproject.toml)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+[![Provider](https://img.shields.io/badge/LLM-MiniMax-orange)](./config.example.yaml)
+[![Obsidian](https://img.shields.io/badge/Output-Obsidian-7C3AED)](https://obsidian.md/)
+
 `autoPapers` 是一个面向 Obsidian 的本地论文抓取工具。它会定时从 `arXiv` / `OpenReview` 拉取新论文，按关键词过滤，调用大模型生成中文结构化笔记，并写入你的知识库。
 
 ## 它是怎么工作的
