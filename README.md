@@ -244,7 +244,7 @@ sources:
 
 ```cron
 CRON_TZ=Asia/Shanghai
-0 8 * * * /usr/bin/flock -n /tmp/autopapers.lock /bin/bash -lc 'cd /home/scotterrzen/autoPapers && /usr/bin/python3 -m autopapers.cli run-daily --config /home/scotterrzen/autoPapers/config.yaml >> /home/scotterrzen/autoPapers/autopapers.log 2>&1'
+0 8 * * * /usr/bin/flock -n /tmp/autopapers.lock /bin/bash -lc 'cd /path/to/autoPapers && /usr/bin/python3 -m autopapers.cli run-daily --config /path/to/autoPapers/config.yaml >> /path/to/autoPapers/autopapers.log 2>&1'
 ```
 
 含义：
