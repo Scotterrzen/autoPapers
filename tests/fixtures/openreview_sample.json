@@ -1,0 +1,37 @@
+{
+  "notes": [
+    {
+      "id": "abc123",
+      "forum": "abc123",
+      "tcdate": 1773628800000,
+      "content": {
+        "title": {
+          "value": "Test Retrieval Benchmark"
+        },
+        "abstract": {
+          "value": "We study retrieval-augmented evaluation under dynamic corpora."
+        },
+        "authors": {
+          "value": ["Jane Doe", "John Roe"]
+        }
+      }
+    },
+    {
+      "id": "old456",
+      "forum": "old456",
+      "tcdate": 1772505600000,
+      "content": {
+        "title": {
+          "value": "Old Submission"
+        },
+        "abstract": {
+          "value": "This should be filtered by date."
+        },
+        "authors": {
+          "value": ["Archived Author"]
+        }
+      }
+    }
+  ]
+}
+

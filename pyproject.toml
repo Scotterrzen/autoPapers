@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autopapers"
+version = "0.1.0"
+description = "Daily paper ingestion pipeline for Obsidian"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "PyYAML>=6.0,<7.0",
+]
+
+[project.scripts]
+autopapers = "autopapers.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+

@@ -1,0 +1,6 @@
+.env
+config.yaml
+.autopapers/
+autopapers.log
+__pycache__/
+*.pyc

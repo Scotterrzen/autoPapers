@@ -1,0 +1,32 @@
+obsidian_root: ~/obsidian/Notes/Papers
+literature_dir: 01 Literature
+concepts_dir: 02 Concepts
+state_dir: .autopapers/state
+timezone: Asia/Shanghai
+schedule: "08:00"
+
+llm:
+  provider: minimax
+  model: MiniMax-M2.5
+  api_key_env: MINIMAX_API_KEY
+  base_url: https://api.minimaxi.com/v1
+  timeout_seconds: 60
+
+filters:
+  include_keywords: []
+  exclude_keywords: []
+  concepts_max_per_paper: 5
+
+sources:
+  arxiv:
+    enabled: true
+    queries:
+      - name: llm-core
+        search_query: cat:cs.CL OR cat:cs.AI OR cat:cs.LG
+        max_results: 50
+  openreview:
+    enabled: true
+    venues:
+      - name: iclr-2026
+        invitation: ICLR.cc/2026/Conference/-/Submission
+        limit: 50
