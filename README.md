@@ -31,34 +31,99 @@
 
 ## 快速开始
 
-1. 复制配置文件：
+### 先决条件
+
+- Python `3.12+`
+- 可用的 `pip`
+- 一个可写的 Obsidian 目录
+- 一个可用的 `MiniMax` 或 `OpenAI` API key
+
+### 新设备首次部署
+
+1. 克隆仓库并进入目录：
+
+```bash
+git clone <your-repo-url>
+cd autoPapers
+```
+
+2. 创建虚拟环境并安装依赖：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -U pip
+python3 -m pip install -e .
+```
+
+3. 复制配置文件：
 
 ```bash
 cp config.example.yaml config.yaml
 ```
 
-2. 在项目根目录创建 `.env`：
+`config.example.yaml` 现在是一个偏保守的试运行模板：
+
+- 默认只开 `arXiv`
+- 默认关闭 `OpenReview`
+- 默认只抓一个小查询，`max_results: 2`
+
+4. 修改 `config.yaml` 里的 `obsidian_root`，改成你自己机器上的真实路径  
+不要直接使用示例里的默认值，除非你的目录结构恰好一致。
+
+5. 建议首次部署时先关闭 `OpenReview`：
+
+```yaml
+sources:
+  openreview:
+    enabled: false
+```
+
+原因：
+
+- 某些 venue invitation 可能返回 `403`
+- 先确保 `arXiv -> LLM -> Obsidian` 主链路能跑通，再逐步打开额外来源
+
+6. 在项目根目录创建 `.env`：
 
 ```bash
 echo 'MINIMAX_API_KEY=你的_key' > .env
 ```
 
-3. 先做环境检查：
+7. 先做环境检查：
 
 ```bash
 python3 -m autopapers.cli doctor --config config.yaml
 ```
 
-4. 补抓最近 3 天：
+8. 建议先做一次低成本试运行，把 `max_results` 临时改小，例如：
+
+```yaml
+sources:
+  arxiv:
+    enabled: true
+    queries:
+      - name: test
+        search_query: all:"vision-language-action"
+        max_results: 2
+```
+
+9. 补抓最近 3 天：
 
 ```bash
 python3 -m autopapers.cli backfill --config config.yaml --days 3
 ```
 
-5. 日常运行：
+10. 日常运行：
 
 ```bash
 python3 -m autopapers.cli run-daily --config config.yaml
+```
+
+如果你使用虚拟环境，后续执行命令前也需要先：
+
+```bash
+source .venv/bin/activate
 ```
 
 ## 配置参数说明
@@ -71,6 +136,13 @@ python3 -m autopapers.cli run-daily --config config.yaml
 - `state_dir`：本地状态目录
 - `timezone`：时区，例如 `Asia/Shanghai`
 - `schedule`：计划执行时间。当前主要是说明字段，真正自动执行时间以 `cron` 为准
+
+部署到新设备时，最容易出错的是 `obsidian_root`。  
+这个值必须是你的本机真实目录，例如：
+
+```yaml
+obsidian_root: /Users/yourname/Documents/Obsidian/Papers
+```
 
 ### 2. 大模型配置
 
@@ -253,6 +325,16 @@ CRON_TZ=Asia/Shanghai
 - 使用 `flock` 防止重复并发
 - 日志追加到 `autopapers.log`
 
+注意：
+
+- 你必须把 `/path/to/autoPapers` 替换成自己机器上的真实绝对路径
+- 如果你使用虚拟环境，建议改成虚拟环境里的 Python，例如：
+
+```cron
+CRON_TZ=Asia/Shanghai
+0 8 * * * /usr/bin/flock -n /tmp/autopapers.lock /bin/bash -lc 'cd /path/to/autoPapers && /path/to/autoPapers/.venv/bin/python -m autopapers.cli run-daily --config /path/to/autoPapers/config.yaml >> /path/to/autoPapers/autopapers.log 2>&1'
+```
+
 ## 常用命令
 
 ```bash
@@ -272,6 +354,16 @@ python3 -m autopapers.cli run-daily --config config.yaml
 
 - 当前 venue 可能是私有 invitation
 - 暂时把 `openreview.enabled` 设为 `false`
+
+### `No module named autopapers` 或缺少依赖
+
+- 通常说明你还没执行 `python3 -m pip install -e .`
+- 或者当前 shell 没有激活正确的虚拟环境
+
+### `Missing obsidian_root`
+
+- 说明 `config.yaml` 里的 `obsidian_root` 不存在
+- 先改成你机器上的真实 Obsidian 目录，再执行 `doctor`
 
 ### 抓取很慢
 

@@ -1,4 +1,6 @@
-obsidian_root: ~/obsidian/Notes/Papers
+# Copy this file to config.yaml before running.
+# Replace obsidian_root with a real local path on your machine.
+obsidian_root: /path/to/your/obsidian/Papers
 literature_dir: 01 Literature
 concepts_dir: 02 Concepts
 state_dir: .autopapers/state
@@ -21,12 +23,12 @@ sources:
   arxiv:
     enabled: true
     queries:
-      - name: llm-core
-        search_query: cat:cs.CL OR cat:cs.AI OR cat:cs.LG
-        max_results: 50
+      - name: test
+        search_query: all:"vision-language-action"
+        max_results: 2
   openreview:
-    enabled: true
+    enabled: false
     venues:
       - name: iclr-2026
         invitation: ICLR.cc/2026/Conference/-/Submission
-        limit: 50
+        limit: 20
