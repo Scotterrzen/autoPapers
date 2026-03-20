@@ -8,6 +8,7 @@ from unittest import mock
 import autopapers.settings as settings_module
 from autopapers.cli import main
 from autopapers.config import load_config
+from autopapers.config_planner import ConfigPlannerError, PlannerArxivQuery, PlannerResult
 from autopapers.settings import run_settings_wizard
 
 
@@ -32,6 +33,7 @@ class SettingsWizardTests(unittest.TestCase):
                     "",
                     "",
                     "y",
+                    "n",
                     "vision-language-action，gaussian splatting",
                     "survey",
                     "7",
@@ -70,7 +72,8 @@ class SettingsWizardTests(unittest.TestCase):
             self.assertIn("--- 基础设置 ---", emitted)
             self.assertIn("--- LLM 设置 ---", emitted)
             self.assertIn("--- 过滤规则 ---", emitted)
-            self.assertIn("--- 数据源 ---", emitted)
+            self.assertIn("--- arXiv 数据源 ---", emitted)
+            self.assertIn("--- OpenReview 数据源 ---", emitted)
 
     def test_run_settings_wizard_repairs_invalid_sources_after_validation_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -123,6 +126,126 @@ class SettingsWizardTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         wizard.assert_called_once_with(Path("custom.yaml"))
+
+    def test_run_settings_wizard_can_auto_fill_filters_and_arxiv(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "config.yaml"
+            (root / "vault").mkdir()
+            answers = iter(
+                [
+                    "vault",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "openai",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "y",
+                    "y",
+                    "vision-language-action and robot manipulation",
+                    "balanced",
+                    "5",
+                    "vla, robot manipulation",
+                    "survey, benchmark",
+                    "y",
+                    "",
+                    "n",
+                ]
+            )
+            secrets = iter(["test-openai-key"])
+            emitted: list[str] = []
+
+            planner = mock.Mock()
+            planner.plan.return_value = PlannerResult(
+                summary="关注 VLA 与机器人操作方向",
+                mode="balanced",
+                reasoning="先用较宽 arXiv 查询，再用字面短语收敛。",
+                include_keywords=["vision-language-action", "robot manipulation", "policy finetuning"],
+                exclude_keywords=["survey", "benchmark"],
+                queries=[
+                    PlannerArxivQuery(
+                        name="vla-core",
+                        search_query='(cat:cs.RO OR cat:cs.AI) AND (all:"vision-language-action" OR all:"robot manipulation")',
+                        max_results=20,
+                    )
+                ],
+            )
+
+            with mock.patch("autopapers.settings.build_config_planner", return_value=planner):
+                exit_code = run_settings_wizard(
+                    config_path,
+                    input_func=lambda _prompt: next(answers),
+                    secret_input_func=lambda _prompt: next(secrets),
+                    emit=emitted.append,
+                )
+
+            config = load_config(config_path)
+            self.assertEqual(exit_code, 0)
+            planner.probe.assert_called_once()
+            planner.plan.assert_called_once()
+            self.assertEqual(config.filters.include_keywords, ["vision-language-action", "robot manipulation", "policy finetuning"])
+            self.assertEqual(config.filters.exclude_keywords, ["survey", "benchmark"])
+            self.assertEqual(len(config.sources.arxiv.queries), 1)
+            self.assertEqual(config.sources.arxiv.queries[0].name, "vla-core")
+            self.assertTrue(any("自动生成结果预览" in line for line in emitted))
+
+    def test_run_settings_wizard_falls_back_to_manual_when_auto_fill_probe_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "config.yaml"
+            (root / "vault").mkdir()
+            answers = iter(
+                [
+                    "vault",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "openai",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "y",
+                    "y",
+                    "vision-language-action",
+                    "survey",
+                    "5",
+                    "y",
+                    "1",
+                    "manual",
+                    'all:"vision-language-action"',
+                    "12",
+                    "n",
+                ]
+            )
+            secrets = iter(["test-openai-key"])
+            emitted: list[str] = []
+
+            planner = mock.Mock()
+            planner.probe.side_effect = ConfigPlannerError("probe failed")
+
+            with mock.patch("autopapers.settings.build_config_planner", return_value=planner):
+                exit_code = run_settings_wizard(
+                    config_path,
+                    input_func=lambda _prompt: next(answers),
+                    secret_input_func=lambda _prompt: next(secrets),
+                    emit=emitted.append,
+                )
+
+            config = load_config(config_path)
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(config.filters.include_keywords, ["vision-language-action"])
+            self.assertEqual(config.sources.arxiv.queries[0].name, "manual")
+            self.assertTrue(any("自动填写不可用: probe failed" in line for line in emitted))
 
     def test_validate_and_write_rolls_back_both_files_when_commit_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

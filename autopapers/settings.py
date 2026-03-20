@@ -9,7 +9,9 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from autopapers.config import ConfigError, load_config
+from autopapers.config import ConfigError, LLMConfig, load_config
+from autopapers.config_planner import ConfigPlannerError, PlannerRequest, PlannerResult, build_config_planner
+from autopapers.http import HttpError
 
 Emitter = Callable[[str], None]
 InputFunc = Callable[[str], str]
@@ -22,6 +24,15 @@ _PROVIDER_ALIASES = {
     "rule_based": "rule_based",
     "rule-based": "rule_based",
     "rulebased": "rule_based",
+}
+_PLANNER_MODE_ALIASES = {
+    "precision": "precision",
+    "balanced": "balanced",
+    "recall": "recall",
+    "精选": "precision",
+    "平衡": "balanced",
+    "召回": "recall",
+    "高召回": "recall",
 }
 _PROVIDER_DEFAULTS = {
     "minimax": {
@@ -62,8 +73,18 @@ def run_settings_wizard(
 
     _prompt_general_settings(input_func, raw, emit=emit)
     _prompt_llm_settings(input_func, secret_input, raw.setdefault("llm", {}), env_values, env_path=env_path, emit=emit)
-    _prompt_filter_settings(input_func, raw.setdefault("filters", {}), emit=emit)
-    _prompt_source_settings(input_func, raw.setdefault("sources", {}), emit=emit)
+    auto_filled = _maybe_auto_fill_filters_and_arxiv(
+        input_func,
+        raw,
+        env_values,
+        emit=emit,
+    )
+    if not auto_filled:
+        _prompt_filter_keyword_settings(input_func, raw.setdefault("filters", {}), emit=emit)
+    _prompt_concept_settings(input_func, raw.setdefault("filters", {}))
+    if not auto_filled:
+        _prompt_arxiv_settings(input_func, raw.setdefault("sources", {}), emit=emit)
+    _prompt_openreview_settings(input_func, raw.setdefault("sources", {}), emit=emit)
 
     while True:
         try:
@@ -293,6 +314,11 @@ def _prompt_api_key_settings(
 
 
 def _prompt_filter_settings(input_func: InputFunc, filters: dict, *, emit: Emitter) -> None:
+    _prompt_filter_keyword_settings(input_func, filters, emit=emit)
+    _prompt_concept_settings(input_func, filters)
+
+
+def _prompt_filter_keyword_settings(input_func: InputFunc, filters: dict, *, emit: Emitter) -> None:
     _emit_section(
         emit,
         "过滤规则",
@@ -312,6 +338,9 @@ def _prompt_filter_settings(input_func: InputFunc, filters: dict, *, emit: Emitt
         "exclude_keywords",
         filters.get("exclude_keywords", []),
     )
+
+
+def _prompt_concept_settings(input_func: InputFunc, filters: dict) -> None:
     filters["concepts_max_per_paper"] = _prompt_int(
         input_func,
         "每篇论文最多概念卡数",
@@ -321,14 +350,17 @@ def _prompt_filter_settings(input_func: InputFunc, filters: dict, *, emit: Emitt
 
 
 def _prompt_source_settings(input_func: InputFunc, sources: dict, *, emit: Emitter) -> None:
+    _prompt_arxiv_settings(input_func, sources, emit=emit)
+    _prompt_openreview_settings(input_func, sources, emit=emit)
+
+
+def _prompt_arxiv_settings(input_func: InputFunc, sources: dict, *, emit: Emitter) -> None:
     _emit_section(
         emit,
-        "数据源",
+        "arXiv 数据源",
         [
-            "至少启用一个来源，并配置对应的 query 或 venue。",
             "arXiv search_query 使用官方格式，例如 all:\"vision-language-action\" 或 cat:cs.CV。",
             "每个 arXiv query 的 max_results 是总抓取预算，不是单页上限。",
-            "OpenReview invitation 如果不可公开访问，运行时可能返回 403。",
         ],
     )
     arxiv = sources.setdefault("arxiv", {})
@@ -338,12 +370,145 @@ def _prompt_source_settings(input_func: InputFunc, sources: dict, *, emit: Emitt
     elif not isinstance(arxiv.get("queries"), list):
         arxiv["queries"] = []
 
+
+def _prompt_openreview_settings(input_func: InputFunc, sources: dict, *, emit: Emitter) -> None:
+    _emit_section(
+        emit,
+        "OpenReview 数据源",
+        [
+            "OpenReview invitation 如果不可公开访问，运行时可能返回 403。",
+            "首次部署建议先关闭 OpenReview，确认 arXiv 主链路可用后再逐步开启。",
+        ],
+    )
     openreview = sources.setdefault("openreview", {})
     openreview["enabled"] = _prompt_bool(input_func, "启用 OpenReview", bool(openreview.get("enabled", False)))
     if openreview["enabled"]:
         openreview["venues"] = _prompt_openreview_venues(input_func, openreview.get("venues", []))
     elif not isinstance(openreview.get("venues"), list):
         openreview["venues"] = []
+
+
+def _maybe_auto_fill_filters_and_arxiv(
+    input_func: InputFunc,
+    raw: dict,
+    env_values: dict[str, str],
+    *,
+    emit: Emitter,
+) -> bool:
+    llm_raw = raw.setdefault("llm", {})
+    provider = str(llm_raw.get("provider", "rule_based")).strip()
+    _emit_section(
+        emit,
+        "自动填写",
+        [
+            "自动填写会调用当前 provider，为你生成 include_keywords、exclude_keywords 和 arXiv queries。",
+            "程序会先验证 API 连通性，再生成结果并展示预览；只有确认后才会写入配置。",
+            "如果探活失败或你不确认结果，会自动回退到手动填写流程。",
+        ],
+    )
+    if provider == "rule_based":
+        emit("当前 provider 是 rule_based，无法启用自动填写，将继续手动模式。")
+        return False
+
+    use_auto = _prompt_bool(
+        input_func,
+        "启用自动填写关键词与 arXiv query",
+        True,
+    )
+    if not use_auto:
+        return False
+
+    planner_config = _build_llm_config(llm_raw)
+    api_key = env_values.get(planner_config.api_key_env) or os.environ.get(planner_config.api_key_env)
+    if not api_key:
+        emit(f"当前未找到 {planner_config.api_key_env}，无法自动填写，将继续手动模式。")
+        return False
+
+    try:
+        planner = build_config_planner(planner_config)
+        emit("正在验证当前 provider 与 API key 是否可用。")
+        planner.probe(api_key_override=api_key)
+        request = _prompt_planner_request(input_func, emit=emit)
+        plan = planner.plan(request, api_key_override=api_key)
+    except (ConfigPlannerError, HttpError) as exc:
+        emit(f"自动填写不可用: {exc}")
+        emit("将继续手动填写流程。")
+        return False
+
+    _emit_planner_preview(plan, emit=emit)
+    confirm = _prompt_bool(input_func, "接受这组自动生成结果", True)
+    if not confirm:
+        emit("已放弃自动生成结果，将继续手动填写流程。")
+        return False
+
+    filters = raw.setdefault("filters", {})
+    filters["include_keywords"] = list(plan.include_keywords)
+    filters["exclude_keywords"] = list(plan.exclude_keywords)
+
+    sources = raw.setdefault("sources", {})
+    arxiv = sources.setdefault("arxiv", {})
+    arxiv["enabled"] = True
+    arxiv["queries"] = [
+        {
+            "name": query.name,
+            "search_query": query.search_query,
+            "max_results": query.max_results,
+        }
+        for query in plan.queries
+    ]
+    emit("自动生成结果已写入当前向导缓存，后续会随配置一起提交。")
+    return True
+
+
+def _prompt_planner_request(input_func: InputFunc, *, emit: Emitter) -> PlannerRequest:
+    _emit_section(
+        emit,
+        "自动填写输入",
+        [
+            "请尽量写具体方向，例如 vision-language-action、gaussian splatting、robot manipulation。",
+            "偏好模式里，precision 更保守，recall 更宽。",
+            "必跟踪短语和噪声短语都支持英文逗号分隔。",
+        ],
+    )
+    return PlannerRequest(
+        interest_directions=_prompt_required_text(input_func, "感兴趣的研究方向", ""),
+        mode=_prompt_choice(
+            input_func,
+            "生成策略模式",
+            "balanced",
+            _PLANNER_MODE_ALIASES,
+        ),
+        target_papers_per_day=_prompt_int(input_func, "希望每天筛到的论文数量", 5, minimum=1),
+        must_track_phrases=_prompt_list(input_func, "必跟踪短语", []),
+        avoid_phrases=_prompt_list(input_func, "已知噪声短语", []),
+    )
+
+
+def _emit_planner_preview(plan: PlannerResult, *, emit: Emitter) -> None:
+    emit("--- 自动生成结果预览 ---")
+    emit(f"范围总结: {plan.summary}")
+    emit(f"策略: {plan.mode}")
+    emit(f"理由: {plan.reasoning}")
+    emit(f"include_keywords: {', '.join(plan.include_keywords)}")
+    emit(
+        "exclude_keywords: "
+        + (", ".join(plan.exclude_keywords) if plan.exclude_keywords else "无")
+    )
+    for index, query in enumerate(plan.queries, start=1):
+        emit(
+            f"arXiv query {index}: "
+            f"name={query.name}, max_results={query.max_results}, search_query={query.search_query}"
+        )
+
+
+def _build_llm_config(llm_raw: dict) -> LLMConfig:
+    return LLMConfig(
+        provider=str(llm_raw.get("provider", "rule_based")),
+        model=str(llm_raw.get("model", "rule_based")),
+        api_key_env=str(llm_raw.get("api_key_env", "")),
+        base_url=str(llm_raw["base_url"]) if llm_raw.get("base_url") else None,
+        timeout_seconds=int(llm_raw.get("timeout_seconds", 60)),
+    )
 
 
 def _repair_invalid_config(

@@ -56,78 +56,49 @@ python3 -m pip install -U pip
 python3 -m pip install -e .
 ```
 
-3. 复制配置文件：
-
-```bash
-cp config.example.yaml config.yaml
-```
-
-`config.example.yaml` 现在是一个偏保守的试运行模板：
-
-- 默认只开 `arXiv`
-- 默认关闭 `OpenReview`
-- 默认只抓一个小查询，`max_results: 2`
-
-4. 修改 `config.yaml` 里的 `obsidian_root`，改成你自己机器上的真实路径  
-不要直接使用示例里的默认值，除非你的目录结构恰好一致。
-
-5. 建议首次部署时先关闭 `OpenReview`：
-
-```yaml
-sources:
-  openreview:
-    enabled: false
-```
-
-原因：
-
-- 某些 venue invitation 可能返回 `403`
-- 先确保 `arXiv -> LLM -> Obsidian` 主链路能跑通，再逐步打开额外来源
-
-6. 在项目根目录创建 `.env`：
-
-```bash
-echo 'MINIMAX_API_KEY=你的_key' > .env
-```
-
-7. 先做环境检查：
-
-```bash
-python3 -m autopapers.cli doctor --config config.yaml
-```
-
-如果你想通过引导式输入来修改配置，也可以直接运行：
+3. 直接启动配置向导：
 
 ```bash
 python3 -m autopapers.cli --settings --config config.yaml
 ```
 
-这个向导现在还可以：
+建议首次部署优先走向导，而不是手动编辑 `config.yaml`。向导会：
 
+- 生成或更新 `config.yaml`
+- 引导你填写 `obsidian_root`、时区、计划时间、抓取来源和关键词
 - 选择 `MiniMax` / `OpenAI` / `rule_based`
 - 按供应商自动带出推荐的 `model`、`api_key_env`、`base_url`
 - 直接把 API key 写入与 `config.yaml` 同目录的 `.env`
-- 当最终校验失败时，只重问出错字段，而不是让你整份配置重来
+- 对 `OpenAI` / `MiniMax` 可选启用“自动填写”，根据研究方向自动生成关键词和 arXiv query
+- 在最终校验失败时，只重问出错字段
+- 以事务方式提交 `config.yaml` 和 `.env`
 
-8. 建议先做一次低成本试运行，把 `max_results` 临时改小，例如：
+4. 首次填写时建议这样配置：
 
-```yaml
-sources:
-  arxiv:
-    enabled: true
-    queries:
-      - name: test
-        search_query: all:"vision-language-action"
-        max_results: 2
-```
+- `obsidian_root`：改成你机器上的真实 Obsidian 目录
+- `llm.provider`：先选你当前有 key 的供应商
+- `sources.openreview.enabled`：首次部署建议先设成 `false`
+- `sources.arxiv.queries[].max_results`：先用 `2` 或 `3` 做低成本试运行
 
-9. 补抓最近 3 天：
+原因：
+
+- 某些 OpenReview invitation 可能返回 `403`
+- 先确保 `arXiv -> LLM -> Obsidian` 主链路能跑通，再逐步打开额外来源
+- 小抓取量更容易快速验证配置是否正确
+
+5. 完成向导后，先做环境检查：
 
 ```bash
-python3 -m autopapers.cli backfill --config config.yaml --days 3
+python3 -m autopapers.cli doctor --config config.yaml
 ```
 
-10. 日常运行：
+6. 建议先做一次低成本试运行，例如补抓最近 1 到 3 天：
+
+```bash
+python3 -m autopapers.cli backfill --config config.yaml --days 1
+```
+
+7. 确认输出正常后，再切换到日常运行：
 
 ```bash
 python3 -m autopapers.cli run-daily --config config.yaml
@@ -137,6 +108,27 @@ python3 -m autopapers.cli run-daily --config config.yaml
 
 ```bash
 source .venv/bin/activate
+```
+
+### 手动配置方式
+
+如果你不想走交互式向导，也可以手动准备配置：
+
+```bash
+cp config.example.yaml config.yaml
+echo 'MINIMAX_API_KEY=你的_key' > .env
+```
+
+`config.example.yaml` 是一个偏保守的试运行模板：
+
+- 默认只开 `arXiv`
+- 默认关闭 `OpenReview`
+- 默认只抓一个小查询，`max_results: 2`
+
+然后手动修改 `config.yaml` 里的 `obsidian_root`，再执行：
+
+```bash
+python3 -m autopapers.cli doctor --config config.yaml
 ```
 
 ## 配置参数说明
@@ -180,6 +172,7 @@ obsidian_root: /Users/yourname/Documents/Obsidian/Papers
 - 它不是语义检索，也不会自动做同义词扩展
 - 如果关键词太宽，会进很多噪声
 - 如果关键词太死，会漏掉很多相关论文
+- 自动填写模式会尽量生成更保守的字面短语，但生成后仍建议你人工确认
 
 例如：
 
@@ -205,6 +198,7 @@ filters:
 - 最终写入量还会受去重、关键词过滤、历史状态影响
 - `run-daily` 会按 `incremental_overlap_hours` 回看一段时间，然后靠状态去重，避免严格边界漏抓
 - 如果你开了 3 个 arXiv 查询，分别是 `20 / 20 / 20`，那每次任务最多会尝试处理 60 篇候选论文；如果进一步调到 `60 / 60 / 60`，则会明显增加运行时长和 LLM 成本
+- 自动填写模式生成的 arXiv query 也会受这些预算限制
 
 ### 5. 论文来源
 
@@ -378,6 +372,7 @@ python3 -m autopapers.cli --settings --config config.yaml
 
 - 读取现有 `config.yaml` 作为默认值
 - 逐项提示你输入路径、时区、计划时间、模型、供应商、API key、关键词和数据源参数
+- 对 `openai` / `minimax` 可以先探活 API，再自动生成 `include_keywords`、`exclude_keywords` 和 arXiv query
 - 在写入前校验配置格式，并在失败时定向重问对应字段
 - 当供应商是 `openai` 或 `minimax` 时，可直接写入 `.env`
 - 以事务方式暂存并提交 `config.yaml` 和 `.env`
@@ -388,6 +383,30 @@ python3 -m autopapers.cli --settings --config config.yaml
 - 输入过程中不会实时改文件；改动先保存在内存中
 - 只有最终校验通过后，才会统一提交到磁盘
 - 正常异常路径下，`config.yaml` 和 `.env` 会一起提交或一起回滚
+- 自动填写失败时，会明确提示当前 API 或返回结果的问题，并回退到手动填写流程
+
+### 自动填写模式
+
+当 `llm.provider` 是 `openai` 或 `minimax` 时，向导里可以启用“自动填写”。
+
+当前自动填写会做这些事：
+
+- 先验证当前 API key 和 provider 是否能成功通信
+- 让你输入感兴趣的研究方向、偏精选/平衡/高召回、目标论文数、必跟踪短语和噪声短语
+- 调用 LLM 生成保守的 `include_keywords`、`exclude_keywords` 和 arXiv query
+- 先展示预览，只有你确认后才写入当前配置缓存
+
+当前自动填写不会做这些事：
+
+- 不会自动生成 OpenReview invitation
+- 不会跳过最终配置校验
+- 不会绕过事务式保存
+
+设计原则：
+
+- `include_keywords` / `exclude_keywords` 仍然是标题和摘要的子串匹配，不是语义检索
+- 生成结果会经过程序侧二次清洗，过宽的低信号词会被丢弃
+- 如果 API 探活失败、返回 JSON 不合法，或你不接受预览结果，向导会自动回退到手动填写
 
 ## 排错
 
