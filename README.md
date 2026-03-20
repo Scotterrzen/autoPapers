@@ -56,78 +56,48 @@ python3 -m pip install -U pip
 python3 -m pip install -e .
 ```
 
-3. 复制配置文件：
-
-```bash
-cp config.example.yaml config.yaml
-```
-
-`config.example.yaml` 现在是一个偏保守的试运行模板：
-
-- 默认只开 `arXiv`
-- 默认关闭 `OpenReview`
-- 默认只抓一个小查询，`max_results: 2`
-
-4. 修改 `config.yaml` 里的 `obsidian_root`，改成你自己机器上的真实路径  
-不要直接使用示例里的默认值，除非你的目录结构恰好一致。
-
-5. 建议首次部署时先关闭 `OpenReview`：
-
-```yaml
-sources:
-  openreview:
-    enabled: false
-```
-
-原因：
-
-- 某些 venue invitation 可能返回 `403`
-- 先确保 `arXiv -> LLM -> Obsidian` 主链路能跑通，再逐步打开额外来源
-
-6. 在项目根目录创建 `.env`：
-
-```bash
-echo 'MINIMAX_API_KEY=你的_key' > .env
-```
-
-7. 先做环境检查：
-
-```bash
-python3 -m autopapers.cli doctor --config config.yaml
-```
-
-如果你想通过引导式输入来修改配置，也可以直接运行：
+3. 直接启动配置向导：
 
 ```bash
 python3 -m autopapers.cli --settings --config config.yaml
 ```
 
-这个向导现在还可以：
+建议首次部署优先走向导，而不是手动编辑 `config.yaml`。向导会：
 
+- 生成或更新 `config.yaml`
+- 引导你填写 `obsidian_root`、时区、计划时间、抓取来源和关键词
 - 选择 `MiniMax` / `OpenAI` / `rule_based`
 - 按供应商自动带出推荐的 `model`、`api_key_env`、`base_url`
 - 直接把 API key 写入与 `config.yaml` 同目录的 `.env`
-- 当最终校验失败时，只重问出错字段，而不是让你整份配置重来
+- 在最终校验失败时，只重问出错字段
+- 以事务方式提交 `config.yaml` 和 `.env`
 
-8. 建议先做一次低成本试运行，把 `max_results` 临时改小，例如：
+4. 首次填写时建议这样配置：
 
-```yaml
-sources:
-  arxiv:
-    enabled: true
-    queries:
-      - name: test
-        search_query: all:"vision-language-action"
-        max_results: 2
-```
+- `obsidian_root`：改成你机器上的真实 Obsidian 目录
+- `llm.provider`：先选你当前有 key 的供应商
+- `sources.openreview.enabled`：首次部署建议先设成 `false`
+- `sources.arxiv.queries[].max_results`：先用 `2` 或 `3` 做低成本试运行
 
-9. 补抓最近 3 天：
+原因：
+
+- 某些 OpenReview invitation 可能返回 `403`
+- 先确保 `arXiv -> LLM -> Obsidian` 主链路能跑通，再逐步打开额外来源
+- 小抓取量更容易快速验证配置是否正确
+
+5. 完成向导后，先做环境检查：
 
 ```bash
-python3 -m autopapers.cli backfill --config config.yaml --days 3
+python3 -m autopapers.cli doctor --config config.yaml
 ```
 
-10. 日常运行：
+6. 建议先做一次低成本试运行，例如补抓最近 1 到 3 天：
+
+```bash
+python3 -m autopapers.cli backfill --config config.yaml --days 1
+```
+
+7. 确认输出正常后，再切换到日常运行：
 
 ```bash
 python3 -m autopapers.cli run-daily --config config.yaml
@@ -135,8 +105,28 @@ python3 -m autopapers.cli run-daily --config config.yaml
 
 如果你使用虚拟环境，后续执行命令前也需要先：
 
-```bash
 source .venv/bin/activate
+```
+
+### 手动配置方式
+
+如果你不想走交互式向导，也可以手动准备配置：
+
+```bash
+cp config.example.yaml config.yaml
+echo 'MINIMAX_API_KEY=你的_key' > .env
+```
+
+`config.example.yaml` 是一个偏保守的试运行模板：
+
+- 默认只开 `arXiv`
+- 默认关闭 `OpenReview`
+- 默认只抓一个小查询，`max_results: 2`
+
+然后手动修改 `config.yaml` 里的 `obsidian_root`，再执行：
+
+```bash
+python3 -m autopapers.cli doctor --config config.yaml
 ```
 
 ## 配置参数说明
@@ -373,6 +363,8 @@ python3 -m autopapers.cli run-daily --config config.yaml
 ```bash
 python3 -m autopapers.cli --settings --config config.yaml
 ```
+
+新设备首次部署时，推荐优先使用这个向导。
 
 向导会：
 
