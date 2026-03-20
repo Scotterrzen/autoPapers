@@ -29,6 +29,16 @@ class StubFetcher:
         return list(self.papers)
 
 
+class CapturingFetcher(StubFetcher):
+    def __init__(self, papers: list[PaperRecord]) -> None:
+        super().__init__(papers)
+        self.since_calls: list[datetime] = []
+
+    def fetch(self, _query, since: datetime, **_kwargs) -> list[PaperRecord]:
+        self.since_calls.append(since)
+        return list(self.papers)
+
+
 class StubEnricher:
     def enrich(self, paper: PaperRecord) -> EnrichedPaper:
         return EnrichedPaper(
@@ -51,6 +61,7 @@ class PipelineTests(unittest.TestCase):
             literature_dir=Path("01 Literature"),
             concepts_dir=Path("02 Concepts"),
             state_dir=root / ".autopapers" / "state",
+            incremental_overlap_hours=12,
             llm=LLMConfig(provider="rule_based"),
             filters=FilterConfig(include_keywords=["retrieval"], exclude_keywords=[]),
             sources=SourceConfig(
@@ -119,3 +130,24 @@ class PipelineTests(unittest.TestCase):
             result = pipeline.backfill(days=2, now=datetime(2026, 3, 17, tzinfo=UTC))
             self.assertEqual(result.written, 0)
             self.assertEqual(result.skipped, 1)
+
+    def test_run_daily_reuses_overlap_hours_from_last_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = self._config(root)
+            state = StateStore.load(config.state_dir)
+            state.set_last_success_at(datetime(2026, 3, 20, 8, 0, tzinfo=UTC))
+            state.save()
+            fetcher = CapturingFetcher([])
+            pipeline = PaperPipeline(
+                config,
+                arxiv_fetcher=fetcher,
+                openreview_fetcher=StubFetcher([]),
+                enricher=StubEnricher(),
+                writer=ObsidianWriter(config),
+                state_store=StateStore.load(config.state_dir),
+            )
+
+            pipeline.run_daily(now=datetime(2026, 3, 20, 20, 0, tzinfo=UTC))
+
+            self.assertEqual(fetcher.since_calls[0], datetime(2026, 3, 19, 20, 0, tzinfo=UTC))

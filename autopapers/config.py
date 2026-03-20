@@ -69,6 +69,7 @@ class AppConfig:
     state_dir: Path
     timezone: str = "Asia/Shanghai"
     schedule: str = "08:00"
+    incremental_overlap_hours: int = 12
     llm: LLMConfig = field(default_factory=LLMConfig)
     filters: FilterConfig = field(default_factory=FilterConfig)
     sources: SourceConfig = field(default_factory=SourceConfig)
@@ -155,6 +156,7 @@ def load_config(path: str | Path) -> AppConfig:
         state_dir=state_dir,
         timezone=str(raw.get("timezone", "Asia/Shanghai")),
         schedule=str(raw.get("schedule", "08:00")),
+        incremental_overlap_hours=int(raw.get("incremental_overlap_hours", 12)),
         llm=llm,
         filters=filters,
         sources=SourceConfig(arxiv=arxiv, openreview=openreview),
@@ -166,6 +168,8 @@ def load_config(path: str | Path) -> AppConfig:
 def validate_config(config: AppConfig) -> None:
     if not config.obsidian_root:
         raise ConfigError("obsidian_root is required")
+    if config.incremental_overlap_hours < 0:
+        raise ConfigError("incremental_overlap_hours must be >= 0")
     if config.filters.concepts_max_per_paper < 1:
         raise ConfigError("filters.concepts_max_per_paper must be >= 1")
     if config.llm.provider not in {"openai", "rule_based", "minimax"}:

@@ -6,6 +6,7 @@ concepts_dir: 02 Concepts
 state_dir: .autopapers/state
 timezone: Asia/Shanghai
 schedule: "08:00"
+incremental_overlap_hours: 12
 
 llm:
   provider: minimax

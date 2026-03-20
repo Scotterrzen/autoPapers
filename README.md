@@ -136,6 +136,7 @@ source .venv/bin/activate
 - `state_dir`：本地状态目录
 - `timezone`：时区，例如 `Asia/Shanghai`
 - `schedule`：计划执行时间。当前主要是说明字段，真正自动执行时间以 `cron` 为准
+- `incremental_overlap_hours`：`run-daily` 重新回看的小时数，用来覆盖源站延迟入库或边界时间漏抓
 
 部署到新设备时，最容易出错的是 `obsidian_root`。  
 这个值必须是你的本机真实目录，例如：
@@ -183,9 +184,12 @@ filters:
 
 注意：
 
+- 这表示每个查询或 venue 的总抓取预算，不再局限于单页
+- 抓取器会自动分页，直到拿满预算或遇到时间窗口外的旧结果
 - 这只是“候选抓取上限”，不是最终一定写入的篇数
 - 最终写入量还会受去重、关键词过滤、历史状态影响
-- 如果你开了 3 个 arXiv 查询，分别是 `4 / 4 / 3`，那每次任务最多会尝试处理 11 篇候选论文
+- `run-daily` 会按 `incremental_overlap_hours` 回看一段时间，然后靠状态去重，避免严格边界漏抓
+- 如果你开了 3 个 arXiv 查询，分别是 `20 / 20 / 20`，那每次任务最多会尝试处理 60 篇候选论文；如果进一步调到 `60 / 60 / 60`，则会明显增加运行时长和 LLM 成本
 
 ### 5. 论文来源
 
@@ -223,25 +227,25 @@ sources:
 
 ## 当前推荐配置策略
 
-如果你的目标是“每天收到少量高相关的多模态 / 3D / Embodied / Alignment 论文”，推荐用现在这类“精选流”配置：
+如果你的目标是“每天尽量不要漏掉符合关键词的论文”，当前更推荐这类“宽抓取 + 关键词收敛”策略：
 
-- `multimodal-core`：抓 `vision-language`、`VLM`、`VLA`
-- `vision-3d`：抓 `gaussian splatting`、`3DGS`、`NeRF`、`neural rendering`
-- `embodied-alignment`：抓 `open x-embodiment`、`preference optimization`、`alignment data synthesis`
+- `multimodal-core`：按 `cs.CV / cs.CL / cs.AI` 抓 `vision-language`、`VLM`、`VLA`
+- `vision-3d`：按 `cs.CV / cs.RO` 抓 `gaussian splatting`、`3DGS`、`NeRF`、`3d reconstruction`
+- `robotics-agents`：按 `cs.RO / cs.AI / cs.CL` 抓 `embodied`、`robot manipulation`、`video world model`
 
 对应思路：
 
-- 不再用一个特别宽的 `cs.AI/cs.CL/cs.LG` 大查询
-- 改成多个更聚焦的小查询
-- 抓取上限控制在 `4 / 4 / 3`
-- 用 `exclude_keywords` 去掉 `survey`、`benchmark`、`active matter`、`knots` 这类噪声
+- source query 先放宽，避免论文根本进不了候选集
+- 每个 query 用较高的 `max_results`，再靠分页抓取把预算拿满
+- `include_keywords` 和 `exclude_keywords` 负责真正的收敛
+- `run-daily` 通过 `incremental_overlap_hours` 回看重叠窗口，降低边界漏抓
 
 ## 如何调参
 
 ### 如果每天抓到太多论文
 
-- 降低 `max_results`，例如从 `4 / 4 / 3` 调到 `3 / 3 / 2`
-- 删除宽词，比如 `alignment`、`preference`、`embodied`
+- 降低 `max_results`，例如从 `60 / 60 / 60` 调到 `20 / 20 / 20`
+- 删除宽词，比如 `multimodal`、`embodied`、`video understanding`
 - 增加 `exclude_keywords`
 
 ### 如果每天几乎抓不到论文
@@ -262,22 +266,22 @@ sources:
 
 ```yaml
 filters:
-  include_keywords: ["vision-language-action", "gaussian splatting", "nerf", "open x-embodiment"]
-  exclude_keywords: ["survey", "benchmark"]
+  include_keywords: ["vision-language-action", "gaussian splatting", "nerf", "robot manipulation"]
+  exclude_keywords: ["survey", "benchmark", "leaderboard"]
 
 sources:
   arxiv:
     enabled: true
     queries:
       - name: multimodal-core
-        search_query: all:"vision-language" OR all:vlm OR all:"vision-language-action"
-        max_results: 4
+        search_query: (cat:cs.CV OR cat:cs.CL OR cat:cs.AI) AND (all:"vision-language" OR all:vlm OR all:"vision-language-action")
+        max_results: 20
       - name: vision-3d
-        search_query: all:"gaussian splatting" OR all:3DGS OR all:nerf
-        max_results: 4
-      - name: embodied-alignment
-        search_query: all:"open x-embodiment" OR all:"preference optimization"
-        max_results: 3
+        search_query: (cat:cs.CV OR cat:cs.RO) AND (all:"gaussian splatting" OR all:3DGS OR all:nerf OR all:"3d reconstruction")
+        max_results: 20
+      - name: robotics-agents
+        search_query: (cat:cs.RO OR cat:cs.AI OR cat:cs.CL) AND (all:"vision-language-action" OR all:embodied OR all:"robot manipulation")
+        max_results: 20
   openreview:
     enabled: false
 ```
@@ -285,6 +289,8 @@ sources:
 ### 示例 2：高召回模式
 
 ```yaml
+incremental_overlap_hours: 12
+
 filters:
   include_keywords: []
   exclude_keywords: []
@@ -329,6 +335,7 @@ CRON_TZ=Asia/Shanghai
 
 - 你必须把 `/path/to/autoPapers` 替换成自己机器上的真实绝对路径
 - 如果你使用虚拟环境，建议改成虚拟环境里的 Python，例如：
+- `backfill` 和 `run-daily` 都会更新状态文件；日常定时任务建议只用 `run-daily`
 
 ```cron
 CRON_TZ=Asia/Shanghai

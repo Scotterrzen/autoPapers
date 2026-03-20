@@ -10,21 +10,40 @@ from autopapers.models import PaperRecord
 class OpenReviewFetcher:
     base_url = "https://api2.openreview.net/notes"
 
-    def __init__(self, http_client: HttpClient | None = None) -> None:
+    def __init__(self, http_client: HttpClient | None = None, page_size: int = 100) -> None:
         self.http_client = http_client or HttpClient()
+        self.page_size = max(1, page_size)
 
     def fetch(self, venue: OpenReviewVenueConfig, since: datetime, fetched_at: datetime) -> list[PaperRecord]:
-        payload = self.http_client.get_json(
-            self.base_url,
-            params={
-                "invitation": venue.invitation,
-                "source": "forum",
-                "sort": "tcdate:desc",
-                "limit": venue.limit,
-                "mintcdate": int(since.timestamp() * 1000),
-            },
-        )
-        return self.parse_response(payload, venue_name=venue.name, since=since, fetched_at=fetched_at)
+        papers: list[PaperRecord] = []
+        seen_keys: set[str] = set()
+
+        for offset in range(0, venue.limit, self.page_size):
+            batch_size = min(self.page_size, venue.limit - offset)
+            payload = self.http_client.get_json(
+                self.base_url,
+                params={
+                    "invitation": venue.invitation,
+                    "source": "forum",
+                    "sort": "tcdate:desc",
+                    "limit": batch_size,
+                    "offset": offset,
+                    "mintcdate": int(since.timestamp() * 1000),
+                },
+            )
+            notes = payload.get("notes", [])
+            if not notes:
+                break
+            for paper in self.parse_response(payload, venue_name=venue.name, since=since, fetched_at=fetched_at):
+                if paper.source_key in seen_keys:
+                    continue
+                seen_keys.add(paper.source_key)
+                papers.append(paper)
+            if len(notes) < batch_size:
+                break
+
+        papers.sort(key=lambda item: item.published_at, reverse=True)
+        return papers
 
     def parse_response(
         self,

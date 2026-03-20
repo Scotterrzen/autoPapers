@@ -16,7 +16,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-level", default="INFO")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    run_daily = subparsers.add_parser("run-daily", help="Fetch the last 24 hours of papers")
+    run_daily = subparsers.add_parser(
+        "run-daily",
+        help="Fetch new papers since the last successful run, with overlap protection",
+    )
     run_daily.add_argument("--config", default="config.yaml")
     run_daily.add_argument("--now", help="Override current time in ISO-8601")
 
@@ -84,6 +87,7 @@ def _run_doctor(config_path: Path) -> int:
     print(f"Literature dir: {config.literature_path}")
     print(f"Concepts dir: {config.concepts_path}")
     print(f"State dir: {config.state_dir}")
+    print(f"Incremental overlap: {config.incremental_overlap_hours}h")
     print(f"Last success: {last_success.isoformat() if last_success else 'never'}")
     if issues:
         for issue in issues:

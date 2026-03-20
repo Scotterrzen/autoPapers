@@ -35,7 +35,11 @@ class PaperPipeline:
 
     def run_daily(self, now: datetime | None = None) -> PipelineResult:
         now = (now or datetime.now(tz=UTC)).astimezone(UTC)
-        since = self.state_store.last_success_at() or (now - timedelta(days=1))
+        last_success = self.state_store.last_success_at()
+        if last_success is None:
+            since = now - timedelta(days=1)
+        else:
+            since = last_success - timedelta(hours=self.config.incremental_overlap_hours)
         return self._run_window(since=since, until=now)
 
     def backfill(self, days: int, now: datetime | None = None) -> PipelineResult:
@@ -117,4 +121,3 @@ class PaperPipeline:
         if exclude_keywords and contains_any_keywords(merged_text, exclude_keywords):
             return False
         return True
-
