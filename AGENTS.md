@@ -9,6 +9,7 @@ Tests live in `tests/`, with sample API payloads under `tests/fixtures/`. Use `c
 - `python3 -m pip install -e .` installs the package locally and exposes the `autopapers` console script.
 - `python3 -m unittest discover -s tests -v` runs the full test suite.
 - `python3 -m compileall autopapers` performs a quick syntax check across the package.
+- `python3 -m autopapers.cli --settings --config config.yaml` launches the interactive settings wizard for writing `config.yaml`.
 - `python3 -m autopapers.cli doctor --config config.example.yaml` validates config structure and local prerequisites.
 - `python3 -m autopapers.cli run-daily --config config.yaml` runs the daily fetch pipeline against your real config.
 - `python3 -m autopapers.cli backfill --config config.yaml --days 3` replays a recent history window with the same filtering and write path.

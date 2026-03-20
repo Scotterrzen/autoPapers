@@ -96,6 +96,19 @@ echo 'MINIMAX_API_KEY=你的_key' > .env
 python3 -m autopapers.cli doctor --config config.yaml
 ```
 
+如果你想通过引导式输入来修改配置，也可以直接运行：
+
+```bash
+python3 -m autopapers.cli --settings --config config.yaml
+```
+
+这个向导现在还可以：
+
+- 选择 `MiniMax` / `OpenAI` / `rule_based`
+- 按供应商自动带出推荐的 `model`、`api_key_env`、`base_url`
+- 直接把 API key 写入与 `config.yaml` 同目录的 `.env`
+- 当最终校验失败时，只重问出错字段，而不是让你整份配置重来
+
 8. 建议先做一次低成本试运行，把 `max_results` 临时改小，例如：
 
 ```yaml
@@ -152,6 +165,8 @@ obsidian_root: /Users/yourname/Documents/Obsidian/Papers
 - `llm.api_key_env`：从环境变量读取 key，例如 `MINIMAX_API_KEY`
 - `llm.base_url`：兼容接口地址
 - `llm.timeout_seconds`：单次模型调用超时秒数
+
+如果你使用 `--settings`，向导会先让你选供应商，再引导你决定是否把 API key 写入 `.env`。
 
 ### 3. 关键词过滤
 
@@ -345,10 +360,34 @@ CRON_TZ=Asia/Shanghai
 ## 常用命令
 
 ```bash
+python3 -m autopapers.cli --settings --config config.yaml
 python3 -m autopapers.cli doctor --config config.yaml
 python3 -m autopapers.cli backfill --config config.yaml --days 3
 python3 -m autopapers.cli run-daily --config config.yaml
 ```
+
+## 配置向导
+
+如果你不想手动编辑 YAML，可以直接启动交互式配置向导：
+
+```bash
+python3 -m autopapers.cli --settings --config config.yaml
+```
+
+向导会：
+
+- 读取现有 `config.yaml` 作为默认值
+- 逐项提示你输入路径、时区、计划时间、模型、供应商、API key、关键词和数据源参数
+- 在写入前校验配置格式，并在失败时定向重问对应字段
+- 当供应商是 `openai` 或 `minimax` 时，可直接写入 `.env`
+- 以事务方式暂存并提交 `config.yaml` 和 `.env`
+- 如果提交中途失败，会自动回滚到旧版本
+
+补充说明：
+
+- 输入过程中不会实时改文件；改动先保存在内存中
+- 只有最终校验通过后，才会统一提交到磁盘
+- 正常异常路径下，`config.yaml` 和 `.env` 会一起提交或一起回滚
 
 ## 排错
 

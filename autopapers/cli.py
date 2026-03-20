@@ -8,13 +8,16 @@ from pathlib import Path
 
 from autopapers.config import ConfigError, load_config
 from autopapers.pipeline import PaperPipeline
+from autopapers.settings import run_settings_wizard
 from autopapers.state import StateStore
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Daily paper ingestion for Obsidian")
     parser.add_argument("--log-level", default="INFO")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--config", default="config.yaml", help="Config path for --settings or as a default")
+    parser.add_argument("--settings", action="store_true", help="Launch the interactive settings wizard")
+    subparsers = parser.add_subparsers(dest="command", required=False)
 
     run_daily = subparsers.add_parser(
         "run-daily",
@@ -37,6 +40,20 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.settings:
+        try:
+            return run_settings_wizard(Path(args.config))
+        except ConfigError as exc:
+            print(f"Configuration error: {exc}")
+            return 2
+        except Exception as exc:  # pragma: no cover - integration path
+            print(f"Fatal error: {exc}")
+            return 1
+
+    if not args.command:
+        parser.error("a command is required unless --settings is used")
+        return 2
+
     logging.basicConfig(level=getattr(logging, str(args.log_level).upper(), logging.INFO))
     try:
         if args.command == "doctor":

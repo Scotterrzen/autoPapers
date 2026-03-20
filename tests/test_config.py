@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from autopapers.config import load_config
+from autopapers.config import ConfigError, load_config
 
 
 class ConfigTests(unittest.TestCase):
@@ -97,3 +97,55 @@ class ConfigTests(unittest.TestCase):
             config = load_config(root / "config.yaml")
 
             self.assertEqual(config.incremental_overlap_hours, 6)
+
+    def test_load_config_rejects_invalid_timezone(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "vault").mkdir()
+            (root / "config.yaml").write_text(
+                "\n".join(
+                    [
+                        "obsidian_root: vault",
+                        "state_dir: .autopapers/state",
+                        "timezone: Mars/Phobos",
+                        "llm:",
+                        "  provider: rule_based",
+                        "sources:",
+                        "  arxiv:",
+                        "    enabled: true",
+                        "    queries:",
+                        "      - name: test",
+                        "        search_query: cat:cs.AI",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ConfigError, "Invalid timezone"):
+                load_config(root / "config.yaml")
+
+    def test_load_config_rejects_openai_without_api_env_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "vault").mkdir()
+            (root / "config.yaml").write_text(
+                "\n".join(
+                    [
+                        "obsidian_root: vault",
+                        "state_dir: .autopapers/state",
+                        "llm:",
+                        "  provider: openai",
+                        "  api_key_env: ''",
+                        "sources:",
+                        "  arxiv:",
+                        "    enabled: true",
+                        "    queries:",
+                        "      - name: test",
+                        "        search_query: cat:cs.AI",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ConfigError, "Missing API environment variable name"):
+                load_config(root / "config.yaml")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -10,6 +11,9 @@ import yaml
 
 class ConfigError(ValueError):
     """Raised when the user config is missing required values."""
+
+
+_SCHEDULE_PATTERN = re.compile(r"^(?P<hour>\d{1,2}):(?P<minute>\d{2})$")
 
 
 @dataclass(slots=True)
@@ -34,7 +38,7 @@ class ArxivSourceConfig:
 
 @dataclass(slots=True)
 class OpenReviewSourceConfig:
-    enabled: bool = True
+    enabled: bool = False
     venues: list[OpenReviewVenueConfig] = field(default_factory=list)
 
 
@@ -137,7 +141,7 @@ def load_config(path: str | Path) -> AppConfig:
     )
 
     openreview = OpenReviewSourceConfig(
-        enabled=bool(openreview_raw.get("enabled", True)),
+        enabled=bool(openreview_raw.get("enabled", False)),
         venues=[
             OpenReviewVenueConfig(
                 name=str(item["name"]),
@@ -168,12 +172,53 @@ def load_config(path: str | Path) -> AppConfig:
 def validate_config(config: AppConfig) -> None:
     if not config.obsidian_root:
         raise ConfigError("obsidian_root is required")
+    if not str(config.literature_dir).strip():
+        raise ConfigError("literature_dir is required")
+    if not str(config.concepts_dir).strip():
+        raise ConfigError("concepts_dir is required")
+    if not str(config.state_dir).strip():
+        raise ConfigError("state_dir is required")
+    try:
+        ZoneInfo(config.timezone)
+    except Exception as exc:
+        raise ConfigError(f"Invalid timezone: {config.timezone}") from exc
+    schedule_match = _SCHEDULE_PATTERN.match(config.schedule)
+    if not schedule_match:
+        raise ConfigError("Invalid schedule: expected HH:MM")
+    hour = int(schedule_match.group("hour"))
+    minute = int(schedule_match.group("minute"))
+    if hour > 23 or minute > 59:
+        raise ConfigError("Invalid schedule: expected HH:MM")
     if config.incremental_overlap_hours < 0:
         raise ConfigError("incremental_overlap_hours must be >= 0")
     if config.filters.concepts_max_per_paper < 1:
         raise ConfigError("filters.concepts_max_per_paper must be >= 1")
     if config.llm.provider not in {"openai", "rule_based", "minimax"}:
         raise ConfigError(f"Unsupported llm.provider: {config.llm.provider}")
+    if config.llm.timeout_seconds < 1:
+        raise ConfigError("llm.timeout_seconds must be >= 1")
+    if config.llm.provider in {"openai", "minimax"} and not config.llm.api_key_env.strip():
+        raise ConfigError(f"Missing API environment variable name for llm.provider={config.llm.provider}")
+    if config.sources.arxiv.enabled:
+        if not config.sources.arxiv.queries:
+            raise ConfigError("At least one arXiv query must be configured when arxiv is enabled")
+        for index, query in enumerate(config.sources.arxiv.queries, start=1):
+            if not query.name.strip():
+                raise ConfigError(f"arxiv query {index} name is required")
+            if not query.search_query.strip():
+                raise ConfigError(f"arxiv query {index} search_query is required")
+            if query.max_results < 1:
+                raise ConfigError(f"arxiv query {index} max_results must be >= 1")
+    if config.sources.openreview.enabled:
+        if not config.sources.openreview.venues:
+            raise ConfigError("At least one OpenReview venue must be configured when openreview is enabled")
+        for index, venue in enumerate(config.sources.openreview.venues, start=1):
+            if not venue.name.strip():
+                raise ConfigError(f"openreview venue {index} name is required")
+            if not venue.invitation.strip():
+                raise ConfigError(f"openreview venue {index} invitation is required")
+            if venue.limit < 1:
+                raise ConfigError(f"openreview venue {index} limit must be >= 1")
     has_arxiv = config.sources.arxiv.enabled and bool(config.sources.arxiv.queries)
     has_openreview = config.sources.openreview.enabled and bool(config.sources.openreview.venues)
     if not has_arxiv and not has_openreview:
